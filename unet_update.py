@@ -146,9 +146,9 @@ ConvBnRelu:
 class ConvBnRelu(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super(ConvBnRelu, self).__init__()
-        self.conv = nn.Conv2d()
-        self.bn   = nn.BatchNorm2d()
-        self.relu = nn.ReLU()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.bn   = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
         
     def forward(self, x):
         x = self.conv(x)
