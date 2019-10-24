@@ -71,7 +71,7 @@ class TrainingDataset(data.Dataset):
         train_img = cv2.resize(train_img, self.input_resize, interpolation = cv2.INTER_AREA)
         
         # Now convert the numpy array to a tensor for Unet
-        train_img_tensor = torch.from_numpy(train_img)
+        train_img_tensor = torch.from_numpy(train_img).float()
         train_img_tensor = train_img_tensor.unsqueeze(0) # ANOTHER WAY to add the 1' channels dimension to beginning of tensor
         #train_img_tensor = train_img_tensor.view(1, *self.input_resize)  # reshape to CHW format (channels, height, width)
         
@@ -85,7 +85,7 @@ class TrainingDataset(data.Dataset):
         # Load labels file as a numpy array as integer: data must be unsigned 8-bit integer otherwise cv2.resize doesnt work!
         labels = np.loadtxt(targetfile_i, dtype='uint8', delimiter=",") 
         labels_resized = cv2.resize(labels, self.target_resize, interpolation=cv2.INTER_AREA)
-        train_target_tensor = torch.from_numpy(labels_resized)
+        train_target_tensor = torch.from_numpy(labels_resized).float()
         train_target_tensor = train_target_tensor.unsqueeze(0) # ANOTHER WAY to add the 1' channels dimension to beginning of tensor
 
         #train_target_tensor = train_img_tensor.view(1, *self.target_resize)  # reshape to CHW format (channels, height, width)
