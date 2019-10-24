@@ -23,7 +23,7 @@ import torch.utils.data
 import torch.nn.functional as F
 import numpy as np
 from cell_dataset_2cells import TrainingDataset
-from unet import UNet
+from unet_update import UNet
 from utils import compute_average_dice, AverageMeter
 import loss  
 from torch.autograd import Variable
