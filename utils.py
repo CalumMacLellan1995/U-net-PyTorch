@@ -67,7 +67,7 @@ def save_dice_single(is_best, filename='dice_single.txt'):
     if is_best:
         shutil.copyfile(filename, 'dice_best.txt')
         
-def compute_dice_score(predict, gt, forground = 1):
+def compute_dice_score(predict, gt, forground): # used to be (, , forground=1)
     score = 0
     count = 0
     assert(predict.shape == gt.shape)
@@ -77,11 +77,11 @@ def compute_dice_score(predict, gt, forground = 1):
     
     return (overlap + 0.001) / (((predict == forground).sum() + (gt == forground).sum()) + 0.001)
 
-def compute_average_dice(predict, gt, class_num):
+def compute_average_dice(predict, gt, class_num=3):
     Dice = 0
     Dice_list = []
 
-    for i in range(1,class_num):
+    for i in range(0, class_num): # range is (1, 2) -> only interested in 
         predict_copy = predict.copy()
         gt_copy = gt.copy()
         predict_copy[predict_copy != i] = 0
@@ -94,7 +94,7 @@ def compute_average_dice(predict, gt, class_num):
     # Only concerned with accuracy of computing 2 classes: cytoplasm and overlap region for the two cells problem. 
     # Thus, the first returned result is the average of two dice scores to give 
     # measure of overall segmentation performance. 
-    return Dice/(class_num - 1), Dice_list[0], Dice_list[1] 
+    return Dice/(class_num - 1), Dice_list[0], Dice_list[1], Dice_list[2]
 
 def compute_score(predict, gt, forground = 1):
     score = 0
