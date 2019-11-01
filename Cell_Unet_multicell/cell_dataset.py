@@ -59,7 +59,7 @@ class TrainingDataset(data.Dataset):
         inputfile_i = self.inputs[index]
         
         # Convert to torch tensor from numpy.
-        train_img_tensor = torch.from_numpy(inputfile_i)
+        train_img_tensor = torch.from_numpy(inputfile_i).float()
         
         """
         ------------------------
