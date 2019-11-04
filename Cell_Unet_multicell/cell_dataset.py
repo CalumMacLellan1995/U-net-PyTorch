@@ -43,7 +43,7 @@ class TrainingDataset(data.Dataset):
         self.inputs = np.squeeze(self.inputs) # squeezes object into one column   
         
         # Targets
-        self.targetfile_list = io.loadmat(target_dir)    # TARGETS: read MATLAB .mat file containing 100 examples 
+        self.targetfile_list = io.loadmat(targets_dir)    # TARGETS: read MATLAB .mat file containing 100 examples 
         self.targets = self.targetfile_list['Train_Mask_DataSet'] # same as above: use the name as the key to get data from dict.
         self.targets = np.squeeze(self.targets) # squeezes object into one column   
         
@@ -61,6 +61,9 @@ class TrainingDataset(data.Dataset):
         # Convert to torch tensor from numpy.
         train_img_tensor = torch.from_numpy(inputfile_i).float()
         
+        # Reshape to 4-dimensions. Required for convolution during Unet. 
+        train_img_tensor = train_img_tensor.unsqueeze(0)
+        
         """
         ------------------------
         Targets: first alteration on 01.11.19.
@@ -77,6 +80,7 @@ class TrainingDataset(data.Dataset):
         
         # Send the file to create_tensor(). 
         train_target_tensor = self.create_tensor(targetfile_i)
+#        train_target_tensor = train_target_tensor.view(1, 512, 512) # same as inputs
         
         return [train_img_tensor, train_target_tensor]
     
@@ -113,6 +117,7 @@ class TrainingDataset(data.Dataset):
         assert len(self.inputs) == len(self.targets)
         return len(self.inputs)
         
+    
 def split_train_val(dataset, val_percent):
     dataset = list(dataset)
     length = len(dataset)
@@ -124,8 +129,10 @@ def split_train_val(dataset, val_percent):
 if __name__ == '__main__':
             
     batch_size = 1
-    image_dir = "E:\\USB_backup_EngDwork\\EngD_work\\Cell_Unet_multicell\\trainingData\\training_images.mat"
-    target_dir = "E:\\USB_backup_EngDwork\\EngD_work\\Cell_Unet_multicell\\trainingData\\training_targets.mat"
+#    image_dir = "E:\\USB_backup_EngDwork\\EngD_work\\Cell_Unet_multicell\\trainingData\\training_images.mat"
+#    target_dir = "E:\\USB_backup_EngDwork\\EngD_work\\Cell_Unet_multicell\\trainingData\\training_targets.mat"
+    image_dir = "/home/hsijcr/calummac/Cell_Unet_multicell/trainingData/training_images.mat"
+    target_dir = "/home/hsijcr/calummac/Cell_Unet_multicell/trainingData/training_targets.mat"
     train_dataset = TrainingDataset(image_dir, target_dir)
     
     traindataloader = DataLoader(train_dataset, batch_size, shuffle=True, num_workers=0)
@@ -140,14 +147,14 @@ if __name__ == '__main__':
     # It gets the input/target pair from __getitem__ which returns the tensors separately. 
 
     # Try this for the first image in the dataset:
-    image, targets = train_dataset[10]
+    image, targets = train_dataset[1]
     print(image.size())
     print(targets.size())
 
     # To visualise the image/target pair, need to squeeze the first dimension (Channel number) 
     # out and then convert to numpy.
     image = image.squeeze(0).numpy()
-    target = targets[5].squeeze(0).numpy() # extract a particular cell's ground truth labels.
+    target = targets[4].squeeze(0).numpy() # extract a particular cell's ground truth labels.
     plt.imshow(image)
     plt.imshow(target)
 

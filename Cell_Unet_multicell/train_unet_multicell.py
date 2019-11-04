@@ -4,14 +4,10 @@
 The 'main' file for calling all the classes/functions to train the network on 
 the cervical cell data.
 
-Latest update: 29/10/19.
-    - added code to deal with the multi cell problem. 
-      Since the prediction map will be set to n_classes=6 for the max number of 
-      cells to identify, I need to remove channels from the output to match 
-      the size of the OHE targets. 
-      
-      (eg. if target.size() = [1,3,512,512] but output.size() = [1,6,512,512])
-      then remove the channels 4-6 to make output.shape==target.shape. )
+Latest update: 01/11/19.
+    - adapted for the new multi-cell approach 
+        -> 5 cells overlapped w/ 40-50% (100 examples)
+    
     
     
 @author: Calum
@@ -46,7 +42,7 @@ os.system('mkdir {0}'.format('model_checkpoint'))
 parser = argparse.ArgumentParser(description = '2D u-net')
 parser.add_argument('--model', default='UNet', type=str, help='choose a type of model')
 parser.add_argument('--lr', type=float, default=0.01, help='learning rate')
-parser.add_argument('--momentum', type=float, default=0.99, help='momentum in optimizer')
+parser.add_argument('--momentum', type=float, default=0.9, help='momentum in optimizer')
 parser.add_argument('--batch_size', type=int, default=1, help='batch size') # choose batch_size of 1 initially
 parser.add_argument('--epochs', type=int, default=5, help='epochs to train')
 parser.add_argument('--out', type=str, default='./model_checkpoint', help='path to save model checkpoints')
@@ -63,12 +59,17 @@ args = parser.parse_args()
 batch_size = args.batch_size 
 epochs = args.epochs   
 n_channels = 1              # grayscale images thus only 1 channel      
-n_classes = 7               # Multi-cell problem has 7 classes: 0=background, 1=cytoplasm, 2=overlap w/ 2cells,..., 6=overlap w/ 6cells.
+n_classes = 5               # Multi-cell problem has 5 classes: 0=cell1, 1=cell2,..., 4=cell5.
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') 
 
 # Directories for paths to data.
-image_dir = './trainingData/subset_train/train_images/*'
-target_dir = './trainingData/subset_train/train_targets/*'
+# Desktop PC (Windows):
+#image_dir = "E:\\USB_backup_EngDwork\\EngD_work\\Cell_Unet_multicell\\trainingData\\training_images.mat"
+#target_dir = "E:\\USB_backup_EngDwork\\EngD_work\\Cell_Unet_multicell\\trainingData\\training_targets.mat"
+  
+# GPU PC directory (Linux):
+image_dir = "/home/hsijcr/calummac/Cell_Unet_multicell/trainingData/training_images.mat"
+target_dir = "/home/hsijcr/calummac/Cell_Unet_multicell/trainingData/training_targets.mat"
     
 if __name__ == '__main__':
     
@@ -77,10 +78,11 @@ if __name__ == '__main__':
     print('===> Built dataset')
 
     classifier = UNet(n_channels, n_classes)
+#    classifier = classifier.cuda()
     classifier.to(device)
     optimizer = optim.Adam(classifier.parameters(), lr=args.lr, weight_decay = 1e-4)
     #scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [50,100], gamma=0.1)
-    l_dice = loss.DiceLoss()
+    l_dice = loss.DiceLoss(n_classes) # this flags up as an error in Linux: need to include n_classes for __init__().
     print('===> Built model')
     print('===> Start training')
 
@@ -97,21 +99,19 @@ if __name__ == '__main__':
         train_loss_epoch, train_dice_epoch = [], []
         train_loss1_epoch, train_loss2_epoch = [], []   # loss 1 = average dice for that epoch
         Dice = AverageMeter()       # Average of the averages (ie overall average DC score for all classes)
-        Dice_bgd = AverageMeter()   # Store average DC for class 0 (background pixels)
-        Dice_cyto = AverageMeter()     # Store average DC for class 1 (cytoplasm)
-        Dice_2ovlp = AverageMeter()     # Store average DC for class 2 (overlap region w/ 2 cells) 
-        Dice_3ovlp = AverageMeter()     # Store average DC for class 3 (overlap region w/ 3 cells) 
-        Dice_4ovlp = AverageMeter()     # Store average DC for class 4 (overlap region w/ 4 cells) 
-        Dice_5ovlp = AverageMeter()     # Store average DC for class 5 (overlap region w/ 5 cells) 
-        Dice_6ovlp = AverageMeter()     # Store average DC for class 6 (overlap region w/ 6 cells) 
-
+        Dice_cell1 = AverageMeter()   # Store average DC for class 0 (background pixels)
+        Dice_cell2 = AverageMeter()     # Store average DC for class 1 (cytoplasm)
+        Dice_cell3 = AverageMeter()     # Store average DC for class 2 (overlap region w/ 2 cells) 
+        Dice_cell4 = AverageMeter()     # Store average DC for class 3 (overlap region w/ 3 cells) 
+        Dice_cell5 = AverageMeter()     # Store average DC for class 4 (overlap region w/ 4 cells) 
+     
         for i, (inputs, targets) in enumerate(traindataloader):
             
             # For each image-target pair, extract the input and target tensors from cell_dataset.py.
             # We want the One-hot encoded tensor targets for the Dice loss function, but since NLL doesnt
-            # like them in that form
-            inputs, targets = inputs.to(device), targets.to(device)
+            # like them in that form, we have to flatten both the output and target tensors.
             inputs, targets = Variable(inputs), Variable(targets)
+            inputs, targets = inputs.to(device), targets.to(device)
             
             optimizer.zero_grad()           # Zero the gradients to prevent future gradients being added to existing gradients
             classifier = classifier.train() # call the classifier (Unet) and set it to training mode 
@@ -119,34 +119,23 @@ if __name__ == '__main__':
 #            print('Prediction map original/Dice size:')
 #            print(pred.size())
 #            
-            """
-            Need to remove channels from output map that we dont need. 
-            If target map is smaller than output map (ie has less channels than it), then we need to chop out 
-            the output channels we dont need before we can continue to loss calculations.
-            """
-            nTargetClasses = targets.size(3) # get the number of channels in the target map
-#            if nTargetClasses < n_classes: 
-#                pred[:, nTargetClasses+1, :, :] = []        # remove the channels we dont need and preserve the rest. 
-#                
-            
             pred_dice = pred                # use this original prediction map for the dice loss.
             
             # Need to put targets used for dice loss in same shape as pred_dice.
             # Use .permute() for this. 
             # Since pred_dice shape is [1, 3, 512, 512], and targets is [1, 512, 512, 3]
             # we switch the 3 with the 512, 512 so it is target_dice = [1, 3, 512, 512] like pred_dice.
-            target_dice = targets.permute(0, 3, 1, 2).float()   # use for dice loss with pred_dice; make targets into integers of unlimited length . this is actually redundant now!!
+            target_dice = targets # use for dice loss with pred_dice; make targets into integers of unlimited length . this is actually redundant now!!
 #            print('Target map original size:')
 #            print(targets.size())
 #            print('Target map Dice size:')
 #            print(target_dice.size())
+            
             # permute(0,2,3,1): this reorders the dimensions of the tensor using the indices specified by the user. 
             # (eg (0, 1, 2, 3) can be reshaped to (0, 2, 3, 1) meaning that in this case, He is moving the image dimensions 
             # in positions 2 and 3 over to positions 1 and 2, but moving the number of channels to position 3. Not sure what
             # the fourth dimension is for -> Batch size (which is == 1 in our case) 
-            
             # .contiguous(): to do with memory, doesnt do anything to tensor. 
-            
             pred = pred.permute(0,2,3,1).contiguous()
 #            print('Prediction map permuted size:')
 #            print(pred.size())
@@ -166,8 +155,11 @@ if __name__ == '__main__':
             target_nll = target_nll.view(-1).long()   # make same shape as pred; flattens target tensor to (N, 1) size -> need .long() 
 #            print('Target map .view size:')
 #            print(target_nll.size())
-
-            loss1 = l_dice(pred_dice, target_dice, nTargetClasses)       # compute dice loss between prediction and target
+            
+#            print(type(pred_dice), type(target_dice))
+#            print(type(pred_nll), type(target_nll))
+##            
+            loss1 = l_dice(pred_dice, target_dice, n_classes)       # compute dice loss between prediction and target
             loss2 = F.nll_loss(pred_nll, target_nll)    # compute negative log likelihood loss 
             loss = loss1+loss2                  # sum the two losses to get custom loss result 
             loss.backward()                     # backpropagate errors through network
@@ -178,15 +170,14 @@ if __name__ == '__main__':
             label_seg = target_nll.data.cpu().numpy() # ...and again for targets
             
             # Compute Average DC for all classes, class 1 (LV), class 2 (RV), and class 3 (myocard.)
-            dice_score, dice0, dice1, dice2, dice3, dice4, dice5, dice6 = compute_average_dice(pred_seg, label_seg, n_classes)
+            dice_score, dice0, dice1, dice2, dice3, dice4 = compute_average_dice(pred_seg, label_seg, n_classes)
             Dice.update(dice_score) # update Dice() with average DC for that image
-            Dice_bgd.update(dice0)
-            Dice_cyto.update(dice1)
-            Dice_2ovlp.update(dice2)
-            Dice_3ovlp.update(dice3)
-            Dice_4ovlp.update(dice4)
-            Dice_5ovlp.update(dice5)
-            Dice_6ovlp.update(dice6)
+            Dice_cell1.update(dice0)
+            Dice_cell2.update(dice1)
+            Dice_cell3.update(dice2)
+            Dice_cell4.update(dice3)
+            Dice_cell5.update(dice4)
+        
 
             train_loss_epoch.append(loss.detach().cpu().numpy())    # loss for that epoch = total loss (DC + NLL)
             train_loss1_epoch.append(loss1.detach().cpu().numpy())  # loss1 = Dice: so this is the cumulative Dice score for this epoch
@@ -195,28 +186,25 @@ if __name__ == '__main__':
         
         # Print results for average DC of each class.
         # Averaged across the N images in the training dataset.        
-        print(('epoch %d | Avg. overall train dice: %f')                 % (epoch+1, Dice.avg))
-        print(('epoch %d | Avg. train dice (background): %f')            % (epoch+1, Dice_bgd.avg))
-        print(('epoch %d | Avg. train dice (cytoplasm): %f')             % (epoch+1, Dice_cyto.avg))
-        print(('epoch %d | Avg. train dice (overlap w/ 2 cells): %f')    % (epoch+1, Dice_2ovlp.avg))
-        print(('epoch %d | Avg. train dice (overlap w/ 3 cells): %f')    % (epoch+1, Dice_3ovlp.avg))
-        print(('epoch %d | Avg. train dice (overlap w/ 4 cells): %f')    % (epoch+1, Dice_4ovlp.avg))
-        print(('epoch %d | Avg. train dice (overlap w/ 5 cells): %f')    % (epoch+1, Dice_5ovlp.avg))
-        print(('epoch %d | Avg. train dice (overlap w/ 6 cells): %f')    % (epoch+1, Dice_6ovlp.avg))
-        print(('epoch %d | Mean train loss: %f')                         % (epoch+1, np.mean(train_loss_epoch)))
-        print(('epoch %d | Mean train loss_dice: %f')                    % (epoch+1, np.mean(train_loss1_epoch)))
-        print(('epoch %d | Mean train loss_CE: %f')                      % (epoch+1, np.mean(train_loss2_epoch)))
+        print(('epoch %d | Avg. overall train dice: %f')     % (epoch+1, Dice.avg))
+        print(('epoch %d | Avg. train dice (cell 1): %f')    % (epoch+1, Dice_cell1.avg))
+        print(('epoch %d | Avg. train dice (cell 2): %f')    % (epoch+1, Dice_cell2.avg))
+        print(('epoch %d | Avg. train dice (cell 3): %f')    % (epoch+1, Dice_cell3.avg))
+        print(('epoch %d | Avg. train dice (cell 4): %f')    % (epoch+1, Dice_cell4.avg))
+        print(('epoch %d | Avg. train dice (cell 5): %f')    % (epoch+1, Dice_cell5.avg))
+    
+        print(('epoch %d | Mean train loss: %f')             % (epoch+1, np.mean(train_loss_epoch)))
+        print(('epoch %d | Mean train loss_dice: %f')        % (epoch+1, np.mean(train_loss1_epoch)))
+        print(('epoch %d | Mean train loss_CE: %f')          % (epoch+1, np.mean(train_loss2_epoch)))
         
         # Write the results 
-        log_string(('epoch %d | Avg. overall train dice: %f')                 % (epoch+1, Dice.avg))
-        log_string(('epoch %d | Avg. train dice (background): %f')            % (epoch+1, Dice_bgd.avg))
-        log_string(('epoch %d | Avg. train dice (cytoplasm): %f')             % (epoch+1, Dice_cyto.avg))
-        log_string(('epoch %d | Avg. train dice (overlap w/ 2 cells): %f')    % (epoch+1, Dice_2ovlp.avg))
-        log_string(('epoch %d | Avg. train dice (overlap w/ 3 cells): %f')    % (epoch+1, Dice_3ovlp.avg))
-        log_string(('epoch %d | Avg. train dice (overlap w/ 4 cells): %f')    % (epoch+1, Dice_4ovlp.avg))
-        log_string(('epoch %d | Avg. train dice (overlap w/ 5 cells): %f')    % (epoch+1, Dice_5ovlp.avg))
-        log_string(('epoch %d | Avg. train dice (overlap w/ 6 cells): %f')    % (epoch+1, Dice_6ovlp.avg))
-        log_string(('epoch %d | Mean train loss: %f')                         % (epoch+1, np.mean(train_loss_epoch)))
+        log_string(('epoch %d | Avg. overall train dice: %f')     % (epoch+1, Dice.avg))
+        log_string(('epoch %d | Avg. train dice (cell 1): %f')    % (epoch+1, Dice_cell1.avg))
+        log_string(('epoch %d | Avg. train dice (cell 2): %f')    % (epoch+1, Dice_cell2.avg))
+        log_string(('epoch %d | Avg. train dice (cell 3): %f')    % (epoch+1, Dice_cell3.avg))
+        log_string(('epoch %d | Avg. train dice (cell 4): %f')    % (epoch+1, Dice_cell4.avg))
+        log_string(('epoch %d | Avg. train dice (cell 5): %f')    % (epoch+1, Dice_cell5.avg))
+        log_string(('epoch %d | Mean train loss: %f')             % (epoch+1, np.mean(train_loss_epoch)))
         
         # Save the model at every epoch. 
         # This lets us decide which model performed the best so that we can keep it for 

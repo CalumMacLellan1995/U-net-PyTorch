@@ -81,7 +81,7 @@ def compute_average_dice(predict, gt, class_num):
     Dice = 0
     Dice_list = []
 
-    for i in range(1, class_num): # range is (1, 6) -> only interested in cytoplasm and overlap regions
+    for i in range(0, class_num): # range is (0-4) 
         predict_copy = predict.copy()
         gt_copy = gt.copy()
         predict_copy[predict_copy != i] = 0
@@ -94,7 +94,7 @@ def compute_average_dice(predict, gt, class_num):
     # Only concerned with accuracy of computing 2 classes: cytoplasm and overlap region for the two cells problem. 
     # Thus, the first returned result is the average of two dice scores to give 
     # measure of overall segmentation performance. 
-    return Dice/(class_num - 1), Dice_list[0], Dice_list[1], Dice_list[2], Dice_list[3], Dice_list[4], Dice_list[5]
+    return Dice/(class_num - 1), Dice_list[0], Dice_list[1], Dice_list[2], Dice_list[3], Dice_list[4]
 
 def compute_score(predict, gt, forground = 1):
     score = 0
