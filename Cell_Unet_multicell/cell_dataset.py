@@ -108,8 +108,11 @@ class TrainingDataset(data.Dataset):
         # Need to have as tensor and in float form:
         tensor = torch.from_numpy(X).float()
         return tensor
-        
     
+    def __len__(self):
+        assert len(self.inputs) == len(self.targets)
+        return len(self.inputs)
+        
 def split_train_val(dataset, val_percent):
     dataset = list(dataset)
     length = len(dataset)
