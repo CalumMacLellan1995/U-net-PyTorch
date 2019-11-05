@@ -59,7 +59,7 @@ args = parser.parse_args()
 batch_size = args.batch_size 
 epochs = args.epochs   
 n_channels = 1              # grayscale images thus only 1 channel      
-n_classes = 5               # Multi-cell problem has 5 classes: 0=cell1, 1=cell2,..., 4=cell5.
+n_classes = 6               # Multi-cell problem has 5 classes: 0=cell1, 1=cell2,..., 4=cell5.
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') 
 
 # Directories for paths to data.
@@ -78,10 +78,9 @@ if __name__ == '__main__':
     print('===> Built dataset')
 
     classifier = UNet(n_channels, n_classes)
-#    classifier = classifier.cuda()
     classifier.to(device)
     optimizer = optim.Adam(classifier.parameters(), lr=args.lr, weight_decay = 1e-4)
-    #scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [50,100], gamma=0.1)
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [50,100], gamma=0.1)
     l_dice = loss.DiceLoss(n_classes) # this flags up as an error in Linux: need to include n_classes for __init__().
     print('===> Built model')
     print('===> Start training')
@@ -93,17 +92,14 @@ if __name__ == '__main__':
         print(optimizer.param_groups[0]['lr'])
         
         # Initialise storage for loss results.
-        # I think the different Dice scores are for distinct classes (eg Dice_1 = Dice score for 
-        # segmenting left ventricle (class=1), Dice_2 = DC for right ventricle (class=2), and so on. But for us, 
-        # this is for the different overlap regions).
         train_loss_epoch, train_dice_epoch = [], []
-        train_loss1_epoch, train_loss2_epoch = [], []   # loss 1 = average dice for that epoch
-        Dice = AverageMeter()       # Average of the averages (ie overall average DC score for all classes)
-        Dice_cell1 = AverageMeter()   # Store average DC for class 0 (background pixels)
-        Dice_cell2 = AverageMeter()     # Store average DC for class 1 (cytoplasm)
-        Dice_cell3 = AverageMeter()     # Store average DC for class 2 (overlap region w/ 2 cells) 
-        Dice_cell4 = AverageMeter()     # Store average DC for class 3 (overlap region w/ 3 cells) 
-        Dice_cell5 = AverageMeter()     # Store average DC for class 4 (overlap region w/ 4 cells) 
+        train_loss1_epoch, train_loss2_epoch = [], []   # loss 1 = average dice for that epoch, loss2 = NLL for that epoch
+        Dice = AverageMeter()           # Average of the averages (ie overall average DC score for all classes)
+        Dice_cell1 = AverageMeter()     # Store average DC for class 1 (cell 1)
+        Dice_cell2 = AverageMeter()     # Store average DC for class 2 (cell 2)
+        Dice_cell3 = AverageMeter()     # Store average DC for class 3 (cell 3) 
+        Dice_cell4 = AverageMeter()     # Store average DC for class 4 (cell 4) 
+        Dice_cell5 = AverageMeter()     # Store average DC for class 5 (cell 5) 
      
         for i, (inputs, targets) in enumerate(traindataloader):
             
@@ -121,21 +117,12 @@ if __name__ == '__main__':
 #            
             pred_dice = pred                # use this original prediction map for the dice loss.
             
-            # Need to put targets used for dice loss in same shape as pred_dice.
-            # Use .permute() for this. 
-            # Since pred_dice shape is [1, 3, 512, 512], and targets is [1, 512, 512, 3]
-            # we switch the 3 with the 512, 512 so it is target_dice = [1, 3, 512, 512] like pred_dice.
-            target_dice = targets # use for dice loss with pred_dice; make targets into integers of unlimited length . this is actually redundant now!!
-#            print('Target map original size:')
-#            print(targets.size())
+            # No need for .permute() for the .mat file format, since already same shape as pred_dice.
+            target_dice = targets 
 #            print('Target map Dice size:')
 #            print(target_dice.size())
             
-            # permute(0,2,3,1): this reorders the dimensions of the tensor using the indices specified by the user. 
-            # (eg (0, 1, 2, 3) can be reshaped to (0, 2, 3, 1) meaning that in this case, He is moving the image dimensions 
-            # in positions 2 and 3 over to positions 1 and 2, but moving the number of channels to position 3. Not sure what
-            # the fourth dimension is for -> Batch size (which is == 1 in our case) 
-            # .contiguous(): to do with memory, doesnt do anything to tensor. 
+        
             pred = pred.permute(0,2,3,1).contiguous()
 #            print('Prediction map permuted size:')
 #            print(pred.size())
@@ -170,20 +157,22 @@ if __name__ == '__main__':
             label_seg = target_nll.data.cpu().numpy() # ...and again for targets
             
             # Compute Average DC for all classes, class 1 (LV), class 2 (RV), and class 3 (myocard.)
-            dice_score, dice0, dice1, dice2, dice3, dice4 = compute_average_dice(pred_seg, label_seg, n_classes)
+            dice_score, dice1, dice2, dice3, dice4, dice5 = compute_average_dice(pred_seg, label_seg, n_classes)
             Dice.update(dice_score) # update Dice() with average DC for that image
-            Dice_cell1.update(dice0)
-            Dice_cell2.update(dice1)
-            Dice_cell3.update(dice2)
-            Dice_cell4.update(dice3)
-            Dice_cell5.update(dice4)
+            Dice_cell1.update(dice1)
+            Dice_cell2.update(dice2)
+            Dice_cell3.update(dice3)
+            Dice_cell4.update(dice4)
+            Dice_cell5.update(dice5)
         
-
+            
             train_loss_epoch.append(loss.detach().cpu().numpy())    # loss for that epoch = total loss (DC + NLL)
             train_loss1_epoch.append(loss1.detach().cpu().numpy())  # loss1 = Dice: so this is the cumulative Dice score for this epoch
             train_loss2_epoch.append(loss2.detach().cpu().numpy())  # loss2 = NLL: so this is the cumulative NLL for this epoch
             train_dice_epoch.append(Dice)                           # 
-        
+                
+        scheduler.step()
+
         # Print results for average DC of each class.
         # Averaged across the N images in the training dataset.        
         print(('epoch %d | Avg. overall train dice: %f')     % (epoch+1, Dice.avg))
@@ -209,7 +198,7 @@ if __name__ == '__main__':
         # Save the model at every epoch. 
         # This lets us decide which model performed the best so that we can keep it for 
         # future use. 
-        torch.save(classifier.state_dict(), '%s/%s_model_%d.pth' % (args.out, 'cellnet', epoch))
+        #torch.save(classifier.state_dict(), '%s/%s_model_%d.pth' % (args.out, 'cellnet', epoch))
         
 
     

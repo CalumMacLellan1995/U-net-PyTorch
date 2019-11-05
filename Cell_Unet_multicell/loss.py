@@ -13,10 +13,9 @@ class DiceLoss(nn.Module):
     def forward(self, output, target, class_num):
         output = torch.exp(output)   # returns the exponential of the log probabilties generated from Unet by the softmax function
 #        self.smooth = 0.5
-        device = torch.device("cuda")
         Dice = Variable(torch.Tensor([0]).float())
-        Dice = Dice.to(device) # need this line otherwise the loss wont be loaded to the GPU; spits out an error
-        for i in range(0,self.class_num):
+        Dice = Dice.to(torch.device("cuda")) # need this line otherwise the loss wont be loaded to the GPU; spits out an error
+        for i in range(0, self.class_num):   
             output_i = output[:, i, :, :]     # extract each prediction map and compare with target
             target_i = target[:, i, :, :]   # extract the OHE vector for each class 
             intersect = (output_i*target_i).sum()

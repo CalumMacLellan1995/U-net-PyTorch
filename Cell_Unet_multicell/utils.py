@@ -81,7 +81,7 @@ def compute_average_dice(predict, gt, class_num):
     Dice = 0
     Dice_list = []
 
-    for i in range(0, class_num): # range is (0-4) 
+    for i in range(1, class_num): # range is (1-5 for the cell's) 
         predict_copy = predict.copy()
         gt_copy = gt.copy()
         predict_copy[predict_copy != i] = 0
