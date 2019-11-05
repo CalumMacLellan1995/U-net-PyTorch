@@ -4,9 +4,16 @@
 The 'main' file for calling all the classes/functions to train the network on 
 the cervical cell data.
 
-Latest update: 01/11/19.
+Latest update: 05/11/19.
     - adapted for the new multi-cell approach 
-        -> 5 cells overlapped w/ 40-50% (100 examples)
+        -> 5 cells overlapped w/ 10-20% (100 examples)
+    - changed class num to 6 (included background pixels as class)
+        -> incorporate background class into Dice loss
+        -> ignore background class for Dice segmentation results 
+    - completed a log with the network trained 10 times (train_n1 to n10.log)
+        -> ran on NVIDIA 1080 GPU (8Gb)
+        -> ~16s per epoch (4 epochs per min, 200 epochs in 52mins)
+        -> changed hyperparameters each time; comments included in each log.
     
     
     
@@ -37,14 +44,14 @@ LOG_FOUT = open(os.path.join(log_root, 'train.log'), 'w')
 def log_string(out_str):
     LOG_FOUT.write(out_str+'\n')
     LOG_FOUT.flush()
-os.system('mkdir {0}'.format('model_checkpoint'))
+#os.system('mkdir {0}'.format('model_checkpoint'))
 
 parser = argparse.ArgumentParser(description = '2D u-net')
 parser.add_argument('--model', default='UNet', type=str, help='choose a type of model')
-parser.add_argument('--lr', type=float, default=0.01, help='learning rate')
-parser.add_argument('--momentum', type=float, default=0.9, help='momentum in optimizer')
+parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
+parser.add_argument('--momentum', type=float, default=0.99, help='momentum in optimizer')
 parser.add_argument('--batch_size', type=int, default=1, help='batch size') # choose batch_size of 1 initially
-parser.add_argument('--epochs', type=int, default=5, help='epochs to train')
+parser.add_argument('--epochs', type=int, default=50, help='epochs to train')
 parser.add_argument('--out', type=str, default='./model_checkpoint', help='path to save model checkpoints')
 parser.add_argument('--lr-mode', type=str, default='step')
 parser.add_argument('--step', type=int, default=20)
@@ -68,8 +75,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 #target_dir = "E:\\USB_backup_EngDwork\\EngD_work\\Cell_Unet_multicell\\trainingData\\training_targets.mat"
   
 # GPU PC directory (Linux):
-image_dir = "/home/hsijcr/calummac/Cell_Unet_multicell/trainingData/training_images.mat"
-target_dir = "/home/hsijcr/calummac/Cell_Unet_multicell/trainingData/training_targets.mat"
+image_dir  = "/home/hsijcr/calummac/Cell_Unet_multicell/trainingData/N5_R_010_020_n100/training_images.mat"
+target_dir = "/home/hsijcr/calummac/Cell_Unet_multicell/trainingData/N5_R_010_020_n100/training_targets.mat"
     
 if __name__ == '__main__':
     
@@ -80,7 +87,7 @@ if __name__ == '__main__':
     classifier = UNet(n_channels, n_classes)
     classifier.to(device)
     optimizer = optim.Adam(classifier.parameters(), lr=args.lr, weight_decay = 1e-4)
-    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [50,100], gamma=0.1)
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones = [14], gamma=0.1)
     l_dice = loss.DiceLoss(n_classes) # this flags up as an error in Linux: need to include n_classes for __init__().
     print('===> Built model')
     print('===> Start training')
@@ -89,7 +96,6 @@ if __name__ == '__main__':
         print('===> EPOCH %03d ' % (epoch+1))
         log_string('**** EPOCH %03d ****' % (epoch+1))
         log_string(str(datetime.now()))
-        print(optimizer.param_groups[0]['lr'])
         
         # Initialise storage for loss results.
         train_loss_epoch, train_dice_epoch = [], []
